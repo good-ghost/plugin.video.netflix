@@ -54,18 +54,18 @@ class MSLRequests(MSLRequestBuilder):
 
     @display_error_info
     @common.time_execution(immediate=True)
-    def perform_key_handshake(self, data=None):
+    def perform_key_handshake(self, data=None):  # pylint: disable=unused-argument
         """Perform a key handshake and initialize crypto keys"""
-        # pylint: disable=unused-argument
-        esn = data or g.get_esn()
+        esn = g.get_esn()
         if not esn:
             common.warn('Cannot perform key handshake, missing ESN')
             return False
 
-        common.debug('Performing key handshake. ESN: {}', esn)
+        common.info('Performing key handshake with ESN: {}',
+                    common.censure(esn) if g.ADDON.getSetting('esn') else esn)
         response = _process_json_response(self._post(ENDPOINTS['manifest'], self.handshake_request(esn)))
         header_data = self.decrypt_header_data(response['headerdata'], False)
-        self.crypto.parse_key_response(header_data, True)
+        self.crypto.parse_key_response(header_data, esn, True)
 
         # Delete all the user id tokens (are correlated to the previous mastertoken)
         self.crypto.clear_user_id_tokens()
@@ -93,6 +93,9 @@ class MSLRequests(MSLRequestBuilder):
 
     def _check_mastertoken_validity(self):
         """Return the mastertoken validity and executes a new key handshake when necessary"""
+        # Check if the current ESN is same of ESN bound to mastertoken
+        is_esn_changed = g.get_esn() != self.crypto.bound_esn
+        # If mastertoken exists, check the validity
         if self.crypto.mastertoken:
             time_now = time.time()
             renewable = self.crypto.renewal_window < time_now
@@ -100,12 +103,13 @@ class MSLRequests(MSLRequestBuilder):
         else:
             renewable = False
             expired = True
-        if expired:
-            if not self.crypto.mastertoken:
-                debug_msg = 'Stored MSL data not available, a new key handshake will be performed'
-            else:
-                debug_msg = 'Stored MSL data is expired, a new key handshake will be performed'
-            common.debug(debug_msg)
+        if expired or is_esn_changed:
+            if common.is_debug_verbose() and not is_esn_changed:
+                if not self.crypto.mastertoken:
+                    debug_msg = 'Stored MSL data not available, a new key handshake will be performed'
+                else:
+                    debug_msg = 'Stored MSL data is expired, a new key handshake will be performed'
+                common.debug(debug_msg)
             if self.perform_key_handshake():
                 msl_data = json.loads(common.load_file(MSL_DATA_FILENAME))
                 self.crypto.load_msl_data(msl_data)
