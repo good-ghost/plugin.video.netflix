@@ -71,7 +71,7 @@ class NFSessionBase(object):
         })
         common.info('Initialized new session')
 
-    def update_session_data(self, old_esn=None):
+    def update_session_data(self):
         self.set_session_header_data()
         cookies.save(self.account_hash, self.session.cookies)
         cookies.log_cookie(self.session.cookies)
